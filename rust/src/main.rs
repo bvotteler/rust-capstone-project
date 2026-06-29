@@ -1,14 +1,7 @@
-#![allow(unused)]
-use bitcoin::hex::DisplayHex;
-use bitcoincore_rpc::bitcoin::hashes::Hash;
-use bitcoincore_rpc::bitcoin::{Address, Amount, BlockHash, OutPoint, Transaction, TxIn, Txid};
-use bitcoincore_rpc::json::GetMempoolEntryResult;
+use bitcoincore_rpc::bitcoin::{Address, Amount, Transaction, TxIn, Txid};
 use bitcoincore_rpc::Error::ReturnedError;
-use bitcoincore_rpc::{Auth, Client, Error as RpcError, RpcApi};
-use serde::Deserialize;
-use serde_json::json;
-use std::fmt;
-use std::fs::{File, OpenOptions};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
+use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
 pub mod tx_info;
