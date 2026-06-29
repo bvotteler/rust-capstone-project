@@ -54,6 +54,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
     let (miner_rpc, trader_rpc) = prepate_test_wallet_rpcs(&rpc)?;
 
     // Generate spendable balances in the Miner wallet. How many blocks needs to be mined?
+    // First: Generate address to receive coinbase rewards to.
     let miner_address = miner_rpc
         .get_new_address(
             Some("first miner receive"),
@@ -70,15 +71,13 @@ fn main() -> bitcoincore_rpc::Result<()> {
     // Need 100 after first coinbase for it to become spendable
     miner_rpc.generate_to_address(101, &miner_address)?;
 
+    // Generate receiving address for trader
     let trader_address = trader_rpc
         .get_new_address(
             Some("first trader receive"),
-            // Generate SegWit address
             Some(bitcoincore_rpc::json::AddressType::Bech32),
         )?
-        // Same as before: let's make sure by requiring regtest
         .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
-        // Manually map error
         .map_err(|e| ReturnedError(e.to_string()))?;
 
     // Send 20 BTC from Miner to Trader
@@ -86,6 +85,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
     let txid: Txid = miner_rpc.send_to_address(
         &trader_address,
         Amount::from_btc(send_amt)?,
+        // Leave optional fields empty
         None,
         None,
         None,
@@ -94,23 +94,22 @@ fn main() -> bitcoincore_rpc::Result<()> {
         None,
     )?;
 
-    // Check transaction in mempool
-    // Calling get_mempool_entry will fail if txid is not in there
+    // Check transaction in mempool.
+    // Calling get_mempool_entry will fail if txid is not in there.
     rpc.get_mempool_entry(&txid).map_err(|e| {
-        // print details here to make it more obvious
+        // Print details here to make it more obvious
         println!("Cannot find txid {} in mempool: {}", txid, e);
 
-        // then return initial error
+        // Then return initial error
         e
     })?;
 
     // Mine 1 block to confirm the transaction
     miner_rpc.generate_to_address(1, &miner_address)?;
 
-    // Extract all required transaction details
+    // Extract all required transaction details.
+    // Get block hash.
     let tx_raw_info = rpc.get_raw_transaction_info(&txid, None)?;
-
-    // Get block hash
     let block_hash = tx_raw_info
         .blockhash
         .ok_or(ReturnedError(String::from("Block not confirmed")))?;
@@ -118,7 +117,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
     // Get block info that contains height for a given hash
     let block_info = rpc.get_block_info(&block_hash)?;
 
-    // Construct builder and populate with initial info
+    // Construct TxInfoBuilder and populate with initial data
     let mut tx_info_builder = TxInfo::builder()
         .txid(txid)
         .block_hash(block_hash)
@@ -144,6 +143,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
         )
         .map_err(|e| ReturnedError(e.to_string()))?;
 
+        // Add input data to builder
         tx_info_builder = tx_info_builder.input(AddressAmount {
             address: address.clone(),
             amount: prev_out.value,
@@ -165,13 +165,13 @@ fn main() -> bitcoincore_rpc::Result<()> {
         .map_err(|e| ReturnedError(e.to_string()))?;
 
         if addr == trader_address {
-            // Goes to trader's output address
+            // Goes to trader's output address, add data to builder
             tx_info_builder = tx_info_builder.output(AddressAmount {
                 address: addr.clone(),
                 amount: output.value,
             });
         } else {
-            // Goes to miner's change address
+            // Goes to miner's change address, add data to builder
             tx_info_builder = tx_info_builder.change(AddressAmount {
                 address: addr.clone(),
                 amount: output.value,
@@ -179,7 +179,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
         }
     }
 
-    // Build TxInfo helper struct
+    // Construct TxInfo from builder
     let tx_info = tx_info_builder
         .build()
         .map_err(|e| ReturnedError(e.to_string()))?;
@@ -191,6 +191,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
         .write(true)
         .open("../out.txt")?;
 
+    // Construct BufWriter and write to file
     let mut writer = BufWriter::new(file);
     writeln!(writer, "{}", tx_info)?;
     writer.flush()?;
