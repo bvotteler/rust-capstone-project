@@ -18,28 +18,6 @@ const RPC_PASS: &str = "password";
 const WALLET_MINER: &str = "Miner";
 const WALLET_TRADER: &str = "Trader";
 
-// You can use calls not provided in RPC lib API using the generic `call` function.
-// An example of using the `send` RPC call, which doesn't have exposed API.
-// You can also use serde_json `Deserialize` derivation to capture the returned json result.
-fn send(rpc: &Client, addr: &str) -> bitcoincore_rpc::Result<String> {
-    let args = [
-        json!([{addr : 100 }]), // recipient address
-        json!(null),            // conf target
-        json!(null),            // estimate mode
-        json!(null),            // fee rate in sats/vb
-        json!(null),            // Empty option object
-    ];
-
-    #[derive(Deserialize)]
-    struct SendResult {
-        complete: bool,
-        txid: String,
-    }
-    let send_result = rpc.call::<SendResult>("send", &args)?;
-    assert!(send_result.complete);
-    Ok(send_result.txid)
-}
-
 // create or load a wallet
 fn load_or_create_wallet(rpc: &Client, name: &str) -> Result<(), bitcoincore_rpc::Error> {
     println!("Checking if wallet '{}' exists...", name);
