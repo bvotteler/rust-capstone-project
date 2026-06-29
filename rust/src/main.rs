@@ -11,6 +11,9 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 
+pub mod tx_info;
+use crate::tx_info::{AddressAmount, TxInfo};
+
 // Node access params
 const RPC_URL: &str = "http://127.0.0.1:18443"; // Default regtest RPC port
 const RPC_USER: &str = "alice";
@@ -20,125 +23,8 @@ const RPC_PASS: &str = "password";
 const WALLET_MINER: &str = "Miner";
 const WALLET_TRADER: &str = "Trader";
 
-// Combine address and amount as they're grouped for input, output, and change
-struct AddressAmount {
-    address: Address,
-    amount: Amount,
-}
-
-// Struct to hold test tx data
-struct TxInfo {
-    // Transaction id
-    txid: Txid,
-    // Miner's input address & amount
-    input: AddressAmount,
-    // Trader's output address & amount
-    output: AddressAmount,
-    // Miner's change address & amount
-    change: AddressAmount,
-    // Block height
-    block_height: u32,
-    // Block hash
-    block_hash: BlockHash,
-}
-
-impl TxInfo {
-    pub fn builder() -> TxInfoBuilder {
-        TxInfoBuilder::new()
-    }
-}
-
-// Implement Display to write expected format to file.
-// We can lean on Display traits implemented for most bitcoincore_rpc types.
-impl fmt::Display for TxInfo {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", self.txid)?;
-        // Miner input
-        writeln!(f, "{}", self.input.address)?;
-        writeln!(f, "{:.8}", self.input.amount.to_btc())?;
-        // Trader output
-        writeln!(f, "{}", self.output.address)?;
-        writeln!(f, "{:.8}", self.output.amount.to_btc())?;
-        // Miner change
-        writeln!(f, "{}", self.change.address)?;
-        writeln!(f, "{:.8}", self.change.amount.to_btc())?;
-
-        // Use Amount calcs then convert to btc to avoid f64 precision issues
-        let fees = self.input.amount - self.output.amount - self.change.amount;
-        writeln!(f, "{:.8}", fees.to_btc())?;
-
-        writeln!(f, "{}", self.block_height)?;
-        // Note: no new line after last item
-        write!(f, "{}", self.block_hash)
-    }
-}
-
-// Builder for TxInfo
-struct TxInfoBuilder {
-    txid: Option<Txid>,
-    input: Option<AddressAmount>,
-    output: Option<AddressAmount>,
-    change: Option<AddressAmount>,
-    block_height: Option<u32>,
-    block_hash: Option<BlockHash>,
-}
-
-impl TxInfoBuilder {
-    pub fn new() -> Self {
-        Self {
-            txid: None,
-            input: None,
-            output: None,
-            change: None,
-            block_height: None,
-            block_hash: None,
-        }
-    }
-
-    pub fn txid(mut self, txid: Txid) -> Self {
-        self.txid = Some(txid);
-        self
-    }
-
-    pub fn input(mut self, input: AddressAmount) -> Self {
-        self.input = Some(input);
-        self
-    }
-
-    pub fn output(mut self, output: AddressAmount) -> Self {
-        self.output = Some(output);
-        self
-    }
-
-    pub fn change(mut self, change: AddressAmount) -> Self {
-        self.change = Some(change);
-        self
-    }
-
-    pub fn block_height(mut self, block_height: u32) -> Self {
-        self.block_height = Some(block_height);
-        self
-    }
-
-    pub fn block_hash(mut self, block_hash: BlockHash) -> Self {
-        self.block_hash = Some(block_hash);
-        self
-    }
-
-    pub fn build(self) -> Result<TxInfo, &'static str> {
-        Ok(TxInfo {
-            txid: self.txid.ok_or("Missing txid")?,
-            input: self.input.ok_or("Missing input")?,
-            output: self.output.ok_or("Missing output")?,
-            change: self.change.ok_or("Missing change")?,
-            block_height: self.block_height.ok_or("Missing block_height")?,
-            block_hash: self.block_hash.ok_or("Missing block_hash")?,
-        })
-    }
-}
-
 // Creates a wallet if needed, loads it, then returns an rpc for that specific wallet
-fn prepare_wallet_rpc(rpc: &Client, wallet_name: &str) -> Result<(Client), bitcoincore_rpc::Error> {
+fn prepare_wallet_rpc(rpc: &Client, wallet_name: &str) -> Result<Client, bitcoincore_rpc::Error> {
     let available_wallets = rpc.list_wallet_dir()?;
     let loaded_wallets = rpc.list_wallets()?;
     if !available_wallets.contains(&wallet_name.to_string()) {
@@ -314,7 +200,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
 
     let mut writer = BufWriter::new(file);
     writeln!(writer, "{}", tx_info)?;
-    writer.flush();
+    writer.flush()?;
 
     Ok(())
 }
