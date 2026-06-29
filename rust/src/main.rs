@@ -18,42 +18,28 @@ const RPC_PASS: &str = "password";
 const WALLET_MINER: &str = "Miner";
 const WALLET_TRADER: &str = "Trader";
 
-// create or load a wallet
-fn load_or_create_wallet(rpc: &Client, name: &str) -> Result<(), bitcoincore_rpc::Error> {
-    println!("Checking if wallet '{}' exists...", name);
-
-    let active_wallets = rpc.list_wallets()?;
-    if active_wallets.contains(&name.to_string()) {
-        println!("Wallet '{}' is already active and loaded.", name);
-        return Ok(());
+// creates a wallet if needed, then returns an rpc for that specific wallet
+fn prepare_wallet_rpc(rpc: &Client, wallet_name: &str) -> Result<(Client), bitcoincore_rpc::Error> {
+    let available_wallets = rpc.list_wallet_dir()?;
+    let loaded_wallets = rpc.list_wallets()?;
+    if !available_wallets.contains(&wallet_name.to_string()) {
+        // create wallet
+        rpc.create_wallet(wallet_name, None, None, None, None)?;
+    } else if !loaded_wallets.contains(&wallet_name.to_owned()) {
+        rpc.load_wallet(wallet_name)?;
     }
 
-    // try loading it first (handles existing but unloaded wallets)
-    match rpc.load_wallet(name) {
-        Ok(_) => {
-            println!("Wallet '{}' loaded from disk.", name);
-            Ok(())
-        }
-        Err(RpcError::JsonRpc(bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc_err)))
-            if rpc_err.code == -4 && rpc_err.message.contains("already loaded") =>
-        {
-            // code -4 but message says "already loaded"
-            println!("Wallet '{}' is already loaded.", name);
-            Ok(())
-        }
-        Err(RpcError::JsonRpc(bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc_err)))
-            if rpc_err.code == -18 =>
-        {
-            // code -18 means the wallet file does not exist
-            println!("Wallet file not found. Create wallet...");
-            let create_result = rpc.create_wallet(name, None, None, None, None)?;
-            if let Some(ref msg) = create_result.warning {
-                println!("Warning during wallet creation: {}", msg);
-            }
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+    let auth = Auth::UserPass(RPC_USER.to_owned(), RPC_PASS.to_owned());
+    let wallet_rpc_url = format!("{}/wallet/{}", RPC_URL, wallet_name);
+    Client::new(&wallet_rpc_url, auth.clone())
+}
+
+// prepares Miner and Trader wallets
+// returns tuple: (miner_wallet_rpc: Client, trader_wallet_rpc: Client)
+fn prepate_test_wallet_rpcs(rpc: &Client) -> Result<(Client, Client), bitcoincore_rpc::Error> {
+    let miner_wallet_rpc = prepare_wallet_rpc(rpc, WALLET_MINER)?;
+    let trader_wallet_rpc = prepare_wallet_rpc(rpc, WALLET_TRADER)?;
+    Ok((miner_wallet_rpc, trader_wallet_rpc))
 }
 
 fn main() -> bitcoincore_rpc::Result<()> {
@@ -65,20 +51,8 @@ fn main() -> bitcoincore_rpc::Result<()> {
     let blockchain_info = rpc.get_blockchain_info()?;
     println!("Blockchain Info: {:?}", blockchain_info);
 
-    // Create/Load the wallets, named 'Miner' and 'Trader'. Have logic to optionally create/load them if they do not exist or not loaded already.
-    load_or_create_wallet(&rpc, WALLET_TRADER)?;
-
-    // Next, create & load miner wallet
-    load_or_create_wallet(&rpc, WALLET_MINER)?;
-
-    // drop(rpc);
-
-    // Now get rpc for miner and trader respectively
-    let trader_rpc_url = format!("{}/wallet/{}", RPC_URL, WALLET_TRADER);
-    let trader_rpc = Client::new(&trader_rpc_url, auth.clone())?;
-
-    let miner_rpc_url = format!("{}/wallet/{}", RPC_URL, WALLET_MINER);
-    let miner_rpc = Client::new(&miner_rpc_url, auth.clone())?;
+    // Create or load miner/trader wallets and get their respective rpcs
+    let (miner_rpc, trader_rpc) = prepate_test_wallet_rpcs(&rpc)?;
 
     // Generate spendable balances in the Miner wallet. How many blocks needs to be mined?
     let miner_address = miner_rpc
