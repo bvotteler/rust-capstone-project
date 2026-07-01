@@ -20,7 +20,7 @@ const WALLET_TRADER: &str = "Trader";
 fn prepare_wallet_rpc(rpc: &Client, wallet_name: &str) -> Result<Client, bitcoincore_rpc::Error> {
     let available_wallets = rpc.list_wallet_dir()?;
     let loaded_wallets = rpc.list_wallets()?;
-    if !available_wallets.contains(&wallet_name.to_string()) {
+    if !available_wallets.contains(&wallet_name.to_owned()) {
         // Create wallet
         rpc.create_wallet(wallet_name, None, None, None, None)?;
     } else if !loaded_wallets.contains(&wallet_name.to_owned()) {
