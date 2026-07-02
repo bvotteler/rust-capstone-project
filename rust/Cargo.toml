@@ -6,5 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitcoincore-rpc = "0.18.0"
 bitcoin = "0.32.0"
+corepc-client = { version = "0.16.0", features = ["client-sync"]}
+corepc-types = "0.15.0"

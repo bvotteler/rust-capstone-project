@@ -1,4 +1,4 @@
-use bitcoincore_rpc::bitcoin::{Address, Amount, BlockHash, Txid};
+use bitcoin::{Address, Amount, BlockHash, Txid};
 use std::fmt;
 
 // Combine address and amount as they're grouped for input, output, and change
