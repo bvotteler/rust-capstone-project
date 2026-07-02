@@ -1,13 +1,16 @@
 use bitcoin::{blockdata::transaction::Transaction, Address, Amount, Network, TxIn, Txid};
 use corepc_client::client_sync::{
     v24::{AddressType, Client},
-    Auth, Error, Result as ClientResult,
+    Auth, Result as ClientResult,
 };
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
-pub mod tx_info;
+mod tx_info;
 use crate::tx_info::{AddressAmount, TxInfo};
+
+mod app_error;
+use crate::app_error::AppError;
 
 // Node access params
 const RPC_URL: &str = "http://127.0.0.1:18443"; // Default regtest RPC port
@@ -46,7 +49,7 @@ fn prepate_test_wallet_rpcs(client: &Client) -> ClientResult<(Client, Client)> {
     Ok((miner_client, trader_client))
 }
 
-fn main() -> ClientResult<()> {
+fn main() -> Result<(), AppError> {
     let auth = Auth::UserPass(RPC_USER.to_owned(), RPC_PASS.to_owned());
     // Connect to Bitcoin Core RPC
     let client = Client::new_with_auth(RPC_URL, auth)?;
@@ -66,14 +69,10 @@ fn main() -> ClientResult<()> {
             // Generate SegWit address
             Some(AddressType::Bech32),
         )?
-        .address()
-        // Map parse error into client's Returned Error
-        .map_err(|e| Error::Returned(e.to_string()))?
+        .address()?
         // We could assume network is checked as it was generated
         // but let's make sure by requiring regtest
-        .require_network(Network::Regtest)
-        // Map error
-        .map_err(|e| Error::Returned(e.to_string()))?;
+        .require_network(Network::Regtest)?;
 
     // Generate to address with 101 blocks
     // Need 100 after first coinbase for it to become spendable
@@ -82,10 +81,8 @@ fn main() -> ClientResult<()> {
     // Generate receiving address for trader
     let trader_address = trader_client
         .get_new_address(Some("first trader receive"), Some(AddressType::Bech32))?
-        .address()
-        .map_err(|e| Error::Returned(e.to_string()))?
-        .require_network(Network::Regtest)
-        .map_err(|e| Error::Returned(e.to_string()))?;
+        .address()?
+        .require_network(Network::Regtest)?;
 
     // Send 20 BTC from Miner to Trader
     let send_amount = Amount::from_int_btc(20);
@@ -110,12 +107,11 @@ fn main() -> ClientResult<()> {
     let tx_raw_info = client
         .get_raw_transaction_verbose(txid)?
         // Call into_model() for typed output instead of Strings and primitive types
-        .into_model()
-        .map_err(|e| Error::Returned(e.to_string()))?;
+        .into_model()?;
 
     let block_hash = tx_raw_info
         .block_hash
-        .ok_or(Error::Returned(String::from("Block not confirmed")))?;
+        .ok_or_else(|| AppError::MissingValue(String::from("Block not confirmed")))?;
 
     // Get block info that contains height for a given hash
     let block_info = client.get_block_verbose_one(block_hash)?;
@@ -130,7 +126,7 @@ fn main() -> ClientResult<()> {
     // So abort earlier if that is not the case
     let tx: Transaction = tx_raw_info.transaction;
     if tx.input.len() != 1 {
-        return Err(Error::Returned(String::from(
+        return Err(AppError::State(String::from(
             "Test expects exactly one (coinbase) input only",
         )));
     }
@@ -138,14 +134,9 @@ fn main() -> ClientResult<()> {
     // Unwrap first() as we checked input len() before
     let tx_in: &TxIn = tx.input.first().unwrap();
     if let Ok(prev_tx) = client.get_raw_transaction(tx_in.previous_output.txid) {
-        let prev_out = &prev_tx
-            .transaction()
-            .map_err(|e| Error::Returned(e.to_string()))?
-            .output[tx_in.previous_output.vout as usize]
-            .clone();
+        let prev_out = &prev_tx.transaction()?.output[tx_in.previous_output.vout as usize].clone();
 
-        let address = Address::from_script(&prev_out.script_pubkey, Network::Regtest)
-            .map_err(|e| Error::Returned(e.to_string()))?;
+        let address = Address::from_script(&prev_out.script_pubkey, Network::Regtest)?;
 
         // Add input data to builder
         tx_info_builder = tx_info_builder.input(AddressAmount {
@@ -157,13 +148,12 @@ fn main() -> ClientResult<()> {
     // Address/amount out and change are in the out vector
     // If not 2 outputs, something is wrong, return error
     if tx.output.len() != 2 {
-        return Err(Error::Returned(String::from("Test expects two outputs")));
+        return Err(AppError::State(String::from("Test expects two outputs")));
     }
 
     // loop over outputs and match output vs change data
     for output in &tx.output {
-        let addr = Address::from_script(&output.script_pubkey, Network::Regtest)
-            .map_err(|e| Error::Returned(e.to_string()))?;
+        let addr = Address::from_script(&output.script_pubkey, Network::Regtest)?;
 
         if addr == trader_address {
             // Goes to trader's output address, add data to builder
@@ -181,9 +171,7 @@ fn main() -> ClientResult<()> {
     }
 
     // Construct TxInfo from builder
-    let tx_info = tx_info_builder
-        .build()
-        .map_err(|e| Error::Returned(e.to_string()))?;
+    let tx_info = tx_info_builder.build()?;
 
     // Write the data to ../out.txt in the specified format given in readme.md
     let file = OpenOptions::new()
